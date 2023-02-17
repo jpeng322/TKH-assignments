@@ -1,18 +1,24 @@
 import express from "express";
 import prisma from "../db/index.js"
-
+import passport from "passport";
 
 
 const router = express.Router()
 
 
 
+//GET Get all recipes without logging in
+
 router.get("/", async (request, response) => {
     try {
         const foundAllRecipes = await prisma.recipe.findMany(
             {
                 include: {
-                    user: true
+                    user: {
+                        select: {
+                            username: true
+                        }
+                    }
                 }
             }
         )
@@ -38,13 +44,60 @@ router.get("/", async (request, response) => {
     }
 })
 
+
+//GET logged in user's recipes -- order of /user and /:id route matters
+router.get("/user", passport.authenticate("jwt", { session: false }), async (request, response) => {
+    try {
+        const foundRecipe = await prisma.recipe.findMany(
+            {
+                where: {
+                    userId: request.user.id
+                },
+                include: {
+                    user: {
+                        select: {
+                            username: true
+                        }
+                    }
+                }
+            }
+        )
+        console.log(foundRecipe)
+        if (foundRecipe.length > 0) {
+            response.status(200).json({
+                success: "true",
+                message: "Recipes found",
+                foundRecipe
+            })
+        } else {
+            response.status(500).json({
+                success: "false",
+                message: "Recipes not found"
+            })
+        }
+    } catch (e) {
+        console.log(e)
+        response.status(500).json({
+            success: "false",
+            message: "Something went wrong"
+        })
+    }
+})
+
+
+//GET Recipe without logging in
+
 router.get("/:id", async (request, response) => {
     try {
         const foundRecipe = await prisma.recipe.findUnique(
             {
                 where: { id: parseInt(request.params.id) },
                 include: {
-                    user: true
+                    user: {
+                        select: {
+                            username: true
+                        }
+                    }
                 }
             }
         )
@@ -70,14 +123,17 @@ router.get("/:id", async (request, response) => {
     }
 })
 
-router.post("/:userId", async (request, response) => {
 
+
+//POST recipe linked to logged in user
+
+router.post("/", passport.authenticate("jwt", { session: false }), async (request, response) => {
 
     try {
         const newRecipe = await prisma.recipe.create({
             data: {
                 title: request.body.title,
-                userId: parseInt(request.params.userId)
+                userId: request.user.id
             }
         })
 
@@ -102,15 +158,21 @@ router.post("/:userId", async (request, response) => {
     }
 })
 
-router.delete("/:id", async (request, response) => {
+
+//Delete recipe only if it is linked to logged in user
+
+router.delete("/:recipeId", passport.authenticate("jwt", { session: false }), async (request, response) => {
+    console.log(typeof request.user.id, request.user.id)
     try {
-        const deletedRecipe = await prisma.recipe.delete({
+        const deletedRecipe = await prisma.recipe.deleteMany({
             where: {
-                id: parseInt(request.params.id)
+                id: parseInt(request.params.recipeId),
+                userId: request.user.id
             }
         })
+        console.log(deletedRecipe.count > 0)
 
-        if (deletedRecipe) {
+        if (deletedRecipe.count > 0) {
             response.status(204).json({
                 success: true,
                 message: "Recipe deleted",
@@ -132,22 +194,23 @@ router.delete("/:id", async (request, response) => {
 })
 
 
-router.put("/:id", async (request, response) => {
+//Update recipe only if it is linked to logged in user
+router.put("/:recipeId", passport.authenticate("jwt", { session: false }), async (request, response) => {
     try {
-        const updatedRecipe = await prisma.recipe.update({
+        const updatedRecipe = await prisma.recipe.updateMany({
             where: {
-                id: parseInt(request.params.id)
+                id: parseInt(request.params.recipeId),
+                userId: request.user.id
             },
             data: {
                 title: request.body.title
             }
         })
-
-        if (updatedRecipe) {
+        console.log(updatedRecipe)
+        if (updatedRecipe.count > 0) {
             response.status(200).json({
                 success: true,
-                message: "Recipe updated",
-                updatedRecipe
+                message: `Recipe updated to ${request.body.title}`,
             })
         } else {
             response.status(500).json({
